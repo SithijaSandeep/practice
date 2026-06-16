@@ -1,0 +1,406 @@
+!gdown --id 1GFmUWOjoSyEclPPnp3a2vl-4HvLl0SC9
+
+!unzip -q MY_data.zip
+
+
+# ============================================================
+# 1. Imports
+# ============================================================
+
+import tensorflow as tf
+import numpy as np
+import json
+from tensorflow.keras import layers
+from tensorflow.keras.applications import MobileNetV2
+from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
+from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
+
+print("TensorFlow version:", tf.__version__)
+
+# ============================================================
+# 2. Dataset paths
+# ============================================================
+
+train_dir = "MY_data/train"
+test_dir  = "MY_data/test"
+
+IMG_SIZE = (160,160)
+BATCH_SIZE = 16
+SEED = 123
+
+# ============================================================
+# 3. Load dataset
+# ============================================================
+
+train_ds = tf.keras.utils.image_dataset_from_directory(
+    train_dir,
+    image_size=IMG_SIZE,
+    batch_size=BATCH_SIZE,
+    label_mode="categorical",
+    shuffle=True,
+    seed=SEED
+)
+
+val_ds = tf.keras.utils.image_dataset_from_directory(
+    test_dir,
+    image_size=IMG_SIZE,
+    batch_size=BATCH_SIZE,
+    label_mode="categorical",
+    shuffle=False
+)
+
+class_names = train_ds.class_names
+num_classes = len(class_names)
+
+print("Class order:", class_names)
+
+# Save class names for Streamlit later
+with open("class_names.json","w") as f:
+    json.dump(class_names,f)
+
+# ============================================================
+# 4. Speed up pipeline
+# ============================================================
+
+AUTOTUNE = tf.data.AUTOTUNE
+train_ds = train_ds.cache().prefetch(AUTOTUNE)
+val_ds   = val_ds.cache().prefetch(AUTOTUNE)
+
+# ============================================================
+# 5. Data augmentation
+# ============================================================
+
+data_augmentation = tf.keras.Sequential([
+    layers.RandomFlip("horizontal"),
+    layers.RandomRotation(0.08),
+    layers.RandomZoom(0.1),
+])
+
+# ============================================================
+# 1. Imports
+# ============================================================
+
+import tensorflow as tf
+import numpy as np
+import json
+from tensorflow.keras import layers
+from tensorflow.keras.applications import MobileNetV2
+from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
+from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
+
+print("TensorFlow version:", tf.__version__)
+
+# ============================================================
+# 2. Dataset paths
+# ============================================================
+
+train_dir = "MY_data/train"
+test_dir  = "MY_data/test"
+
+IMG_SIZE = (160,160)
+BATCH_SIZE = 16
+SEED = 123
+
+# ============================================================
+# 3. Load dataset
+# ============================================================
+
+train_ds = tf.keras.utils.image_dataset_from_directory(
+    train_dir,
+    image_size=IMG_SIZE,
+    batch_size=BATCH_SIZE,
+    label_mode="categorical",
+    shuffle=True,
+    seed=SEED
+)
+
+val_ds = tf.keras.utils.image_dataset_from_directory(
+    test_dir,
+    image_size=IMG_SIZE,
+    batch_size=BATCH_SIZE,
+    label_mode="categorical",
+    shuffle=False
+)
+
+class_names = train_ds.class_names
+num_classes = len(class_names)
+
+print("Class order:", class_names)
+
+# Save class names for Streamlit later
+with open("class_names.json","w") as f:
+    json.dump(class_names,f)
+
+# ============================================================
+# 4. Speed up pipeline
+# ============================================================
+
+AUTOTUNE = tf.data.AUTOTUNE
+train_ds = train_ds.cache().prefetch(AUTOTUNE)
+val_ds   = val_ds.cache().prefetch(AUTOTUNE)
+
+# ============================================================
+# 5. Data augmentation
+# ============================================================
+
+data_augmentation = tf.keras.Sequential([
+    layers.RandomFlip("horizontal"),
+    layers.RandomRotation(0.08),
+    layers.RandomZoom(0.1),
+])
+
+# ============================================================
+# 6. Build MobileNetV2 model
+# ============================================================
+
+base_model = MobileNetV2(
+    input_shape=IMG_SIZE + (3,),
+    include_top=False,
+    weights="imagenet"
+)
+
+base_model.trainable = False
+
+inputs = tf.keras.Input(shape=IMG_SIZE + (3,))
+
+# 1. Data Augmentation
+x = data_augmentation(inputs)
+
+# 2. 🚨 මෙතන තිබ්බ Rescaling එක සම්පූර්ණයෙන්ම අයින් කරලා, 
+# කෙලින්ම MobileNetV2 එකේ preprocess_input එක විතරක් මෙහෙම දාන්න 👇
+x = preprocess_input(x)
+
+x = base_model(x, training=False)
+x = layers.GlobalAveragePooling2D()(x)
+x = layers.Dropout(0.2)(x)
+
+outputs = layers.Dense(num_classes, activation="softmax")(x)
+model = tf.keras.Model(inputs, outputs)
+
+# ============================================================
+# 7. Compile model
+# ============================================================
+
+model.compile(
+    optimizer=tf.keras.optimizers.Adam(learning_rate=1e-3),
+    loss="categorical_crossentropy",
+    metrics=["accuracy"]
+)
+
+callbacks = [
+    EarlyStopping(patience=4, restore_best_weights=True),
+    ReduceLROnPlateau(patience=2, factor=0.5)
+]
+
+# ============================================================
+# 8. Train classifier head
+# ============================================================
+
+history = model.fit(
+    train_ds,
+    validation_data=val_ds,
+    epochs=20,
+    callbacks=callbacks
+)
+
+# ============================================================
+# 9. Fine-tune deeper layers
+# ============================================================
+
+base_model.trainable = True
+
+for layer in base_model.layers[:-30]:
+    layer.trainable = False
+
+model.compile(
+    optimizer=tf.keras.optimizers.Adam(learning_rate=1e-5),
+    loss="categorical_crossentropy",
+    metrics=["accuracy"]
+)
+
+history_fine = model.fit(
+    train_ds,
+    validation_data=val_ds,
+    epochs=10,
+    callbacks=callbacks
+)
+
+# ============================================================
+# 10. Save model
+# ============================================================
+
+model.save("student_mobilenetv2_transfer_learning.keras")
+
+print("Model saved successfully")
+
+# ============================================================
+# 7. Compile model
+# ============================================================
+
+model.compile(
+    optimizer=tf.keras.optimizers.Adam(learning_rate=1e-3),
+    loss="categorical_crossentropy",
+    metrics=["accuracy"]
+)
+
+callbacks = [
+    EarlyStopping(patience=4, restore_best_weights=True),
+    ReduceLROnPlateau(patience=2, factor=0.5)
+]
+
+# ============================================================
+# 8. Train classifier head
+# ============================================================
+
+history = model.fit(
+    train_ds,
+    validation_data=val_ds,
+    epochs=20,
+    callbacks=callbacks
+)
+
+# ============================================================
+# 9. Fine-tune deeper layers
+# ============================================================
+
+base_model.trainable = True
+
+for layer in base_model.layers[:-30]:
+    layer.trainable = False
+
+model.compile(
+    optimizer=tf.keras.optimizers.Adam(learning_rate=1e-5),
+    loss="categorical_crossentropy",
+    metrics=["accuracy"]
+)
+
+history_fine = model.fit(
+    train_ds,
+    validation_data=val_ds,
+    epochs=10,
+    callbacks=callbacks
+)
+
+# ============================================================
+# 10. Save model
+# ============================================================
+
+model.save("student_mobilenetv2_transfer_learning.keras")
+
+print("Model saved successfully")
+
+
+
+
+
+import matplotlib.pyplot as plt
+
+# 1. Training සහ Validation Accuracy Graph එක ඇඳීම
+plt.figure(figsize=(12, 4))
+
+plt.subplot(1, 2, 1)
+plt.plot(history.history['accuracy'], label='Training Accuracy')
+plt.plot(history.history['val_accuracy'], label='Validation Accuracy')
+plt.title('Training & Validation Accuracy')
+plt.xlabel('Epoch')
+plt.ylabel('Accuracy')
+plt.legend()
+
+# 2. Training සහ Validation Loss Graph එක ඇඳීම
+plt.subplot(1, 2, 2)
+plt.plot(history.history['loss'], label='Training Loss')
+plt.plot(history.history['val_loss'], label='Validation Loss')
+plt.title('Training & Validation Loss')
+plt.xlabel('Epoch')
+plt.ylabel('Loss')
+plt.legend()
+
+plt.show()
+
+
+
+
+
+
+
+
+.............................
+
+
+import streamlit as st
+import tensorflow as tf
+import numpy as np
+import json
+from PIL import Image
+# 🚨 MobileNetV2 preprocessing kalla apahu ekathu kala 👇
+from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
+
+# 1. Page Configuration
+st.set_page_config(page_title="Image Classifier", layout="centered")
+st.title("📸 Image Classification App")
+st.write("Upload an image to predict its class using the newly trained MobileNetV2 model.")
+
+# 2. Load Model and Class Names
+@st.cache_resource
+def load_my_model():
+    # 💡 Oya aluth model eka save karapu name eka methanata danna (e.g., student_mobilenetv2_transfer_learning.keras)
+    model = tf.keras.models.load_model("student_mobilenetv2_transfer_learning.keras")
+    with open("class_names.json", "r") as f:
+        classes = json.load(f)
+    return model, classes
+
+try:
+    model, class_names = load_my_model()
+    st.success("Model and Class names loaded successfully!")
+except Exception as e:
+    st.error(f"Error loading model: {e}")
+
+# 3. Image Upload Layer
+uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "jpeg", "png"])
+
+if uploaded_file is not None:
+    # Display uploaded image
+    image = Image.open(uploaded_file).convert('RGB')
+    st.image(image, caption='Uploaded Image', use_container_width=True)
+    
+    st.write("👁️ Predicting...")
+    
+  
+   # ============================================================
+    # 4. Standard Preprocessing (මොඩල් එක ඇතුළෙන්ම scale වෙන නිසා මෙතන සරලයි)
+    # ============================================================
+    img_resized = image.resize((160, 160))
+    img_array = tf.keras.preprocessing.image.img_to_array(img_resized)
+    img_array = tf.expand_dims(img_array, 0) # (1, 160, 160, 3)
+    
+    # 🚨 මොඩල් එක ඇතුළේ Rescaling layer එක තියෙන නිසා මෙතන preprocess_input කරන්නේ නැහැ. 
+    # කෙලින්ම float32 වලට cast විතරක් කරලා මොඩල් එකට දෙනවා 👇
+    img_array = tf.cast(img_array, tf.float32)
+    
+   # ============================================================
+    # 5. Model Prediction
+    # ============================================================
+    predictions = model.predict(img_array)
+    raw_probabilities = predictions[0]
+    
+    # Real Prediction Logic
+    predicted_index = np.argmax(raw_probabilities) 
+    predicted_class = class_names[predicted_index]
+    confidence = 100 * raw_probabilities[predicted_index] 
+    
+    # ============================================================
+    # 🚨 6. Show Results (මෙන්න මේ කෑල්ල ඔයාගේ code එකේ ලියන්න අමතක වෙලා තිබ්බා!) 👇
+    # ============================================================
+    st.write("---") # පුංචි ඉරක් ඇඳීම
+    st.subheader(f"Final Prediction: **{predicted_class}**")
+    st.progress(int(confidence))
+    st.write(f"Confidence: **{confidence:.2f}%**")
+
+
+
+
+
+tensorflow-cpu
+streamlit
+numpy
+Pillow
